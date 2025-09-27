@@ -80,6 +80,47 @@ OPENAI_API_KEY=sk-... \
 - `--whisper-model <NAME>`: Transcription model (default: `whisper-1`)
 - `--translate-model <NAME>`: Translation chat model (default: `gpt-4o-mini`)
 
+## Fonts for Burn-in
+
+For burned-in subtitles, ffmpeg/libass must find a font with Traditional Chinese glyphs. Install Noto CJK and prepare a local fonts folder for reliable results.
+
+1) Install fonts
+
+macOS (Homebrew):
+
+```
+brew install --cask font-noto-sans-cjk
+brew install --cask font-noto-serif-cjk
+```
+
+Linux (Debian/Ubuntu):
+
+```
+sudo apt-get install -y fonts-noto-cjk
+```
+
+2) Prepare project fonts directory
+
+```
+scripts/prepare_fonts.sh  # copies Noto CJK TC fonts into ./fonts
+```
+
+3) Use the fonts directory
+
+```
+./target/release/video-translator \
+  --input /path/to/video.mp4 \
+  --burn-in \
+  --font-dir ./fonts \
+  --font-name "Noto Sans CJK TC" \
+  --output-mp4 /path/to/video.zh-TW.burned.mp4
+
+# or set an env var so --font-dir is optional
+export VIDEO_TRANSLATOR_FONTS_DIR=./fonts
+```
+
+The app automatically prefers a local `./fonts` directory if present.
+
 ## Notes
 
 - Transcription expects Japanese audio; `language` is set to `ja`.

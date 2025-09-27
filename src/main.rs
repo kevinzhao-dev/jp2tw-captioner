@@ -34,6 +34,14 @@ struct Args {
     #[arg(long, default_value_t = false)]
     burn_in: bool,
 
+    /// Directory containing fonts for burn-in (libass fontsdir)
+    #[arg(long, default_value = "./fonts")]
+    font_dir: Option<PathBuf>,
+
+    /// Preferred font family name for burn-in (e.g., "Noto Sans CJK TC")
+    #[arg(long, default_value = "Noto Sans CJK TC")]
+    font_name: Option<String>,
+
     /// Whisper model for transcription
     #[arg(long, default_value = "whisper-1")]
     whisper_model: String,
@@ -129,7 +137,31 @@ async fn main() -> Result<()> {
             output_mp4.unwrap_or_else(|| default_output_video_path(&args.input, args.burn_in));
         if args.burn_in {
             progress.set_message("Burning subtitles into video (re-encode with ffmpeg)...");
-            burn_in_subtitles(&args.input, &output_srt, &out_mp4)?;
+            // Prepare an ASS file with an explicit font to avoid missing glyphs
+            let ass_path = tmp.path().join("subs.ass");
+            // Prefer Noto on macOS to avoid PingFangUI private path issues
+            let default_font = if cfg!(target_os = "macos") {
+                "Noto Sans CJK TC"
+            } else {
+                "Noto Sans CJK TC"
+            };
+            let chosen_font = args.font_name.as_deref().unwrap_or(default_font);
+            write_ass(&ass_path, &segments, &zh_lines, chosen_font)?;
+
+            // Try provided fonts dir or detect common/project fonts locations
+            let fonts_dir = resolve_fonts_dir(args.font_dir.as_deref());
+            if let Some(ref d) = fonts_dir {
+                eprintln!("Using fonts dir: {}", d.display());
+            } else {
+                eprintln!("Warning: no fonts dir found; relying on system fallback. You can run scripts/prepare_fonts.sh");
+            }
+            burn_in_subtitles(
+                &args.input,
+                &ass_path,
+                &out_mp4,
+                fonts_dir.as_deref(),
+                None,
+            )?;
         } else {
             progress.set_message("Muxing subtitles track into MP4 (mov_text)...");
             mux_subtitles(&args.input, &output_srt, &out_mp4)?;
@@ -386,9 +418,28 @@ fn mux_subtitles(input: &Path, srt: &Path, out: &Path) -> Result<()> {
     Ok(())
 }
 
-fn burn_in_subtitles(input: &Path, srt: &Path, out: &Path) -> Result<()> {
+fn burn_in_subtitles(
+    input: &Path,
+    subs: &Path,
+    out: &Path,
+    fonts_dir: Option<&Path>,
+    font_name: Option<&str>,
+) -> Result<()> {
     // Burn subtitles using subtitles filter (requires libass). Re-encodes video.
-    let filter = format!("subtitles={}", escape_for_ffmpeg(srt));
+    let mut filter = format!("subtitles={}", escape_for_ffmpeg(subs));
+    if let Some(dir) = fonts_dir {
+        filter.push_str(":fontsdir=");
+        filter.push_str(&escape_for_ffmpeg(dir));
+    }
+    // If an ASS file was generated with a Style font, don't override via force_style.
+    // Only apply force_style for plain SRT inputs when an explicit font is requested.
+    if subs.extension().and_then(|s| s.to_str()).map(|e| e.eq_ignore_ascii_case("ass")) == Some(false) {
+        if let Some(name) = font_name {
+            let safe = name.replace("'", "\\'");
+            filter.push_str(":force_style=");
+            filter.push_str(&format!("'FontName={}'", safe));
+        }
+    }
     let status = Command::new("ffmpeg")
         .args([
             "-y",
@@ -414,4 +465,97 @@ fn escape_for_ffmpeg(path: &Path) -> String {
     s.replace("\\", "\\\\")
         .replace(":", "\\:")
         .replace("=", "\\=")
+}
+
+fn write_ass(path: &Path, segments: &[WhisperSegment], lines: &[String], font_name: &str) -> Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path)
+        .with_context(|| format!("Create ASS at {}", path.display()))?;
+
+    // Basic ASS header with a single style
+    writeln!(f, "[Script Info]")?;
+    writeln!(f, "ScriptType: v4.00+")?;
+    writeln!(f, "WrapStyle: 0")?;
+    writeln!(f, "ScaledBorderAndShadow: yes")?;
+    writeln!(f, "YCbCr Matrix: TV.601")?;
+    writeln!(f, "")?;
+    writeln!(f, "[V4+ Styles]")?;
+    writeln!(f, "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")?;
+    let font = font_name.replace(",", " ");
+    // White text, black outline/shadow, bottom-center
+    writeln!(f, "Style: Default,{font},36,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1")?;
+    writeln!(f, "")?;
+    writeln!(f, "[Events]")?;
+    writeln!(f, "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")?;
+
+    for (seg, text) in segments.iter().zip(lines.iter()) {
+        let start = format_ass_time(seg.start);
+        let end = format_ass_time(seg.end);
+        let mut t = text.replace("\n", "\\N");
+        t = t.replace("{", "(").replace("}", ")");
+        writeln!(f, "Dialogue: 0,{start},{end},Default,,0,0,0,,{t}")?;
+    }
+    Ok(())
+}
+
+fn format_ass_time(seconds: f64) -> String {
+    // h:mm:ss.cs (centiseconds)
+    let total_cs = (seconds * 100.0).round() as i64;
+    let cs = total_cs % 100;
+    let total_secs = total_cs / 100;
+    let s = total_secs % 60;
+    let total_mins = total_secs / 60;
+    let m = total_mins % 60;
+    let h = total_mins / 60;
+    format!("{}:{:02}:{:02}.{:02}", h, m, s, cs)
+}
+
+fn detect_default_fonts_dir() -> Option<PathBuf> {
+    // Try common system fonts directories to help libass find CJK glyphs
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // Highest priority: env override
+    if let Ok(env_dir) = std::env::var("VIDEO_TRANSLATOR_FONTS_DIR") {
+        let p = PathBuf::from(env_dir);
+        if p.exists() { return Some(p); }
+    }
+
+    // Project-local fonts folder next
+    if let Ok(cwd) = std::env::current_dir() {
+        let project_fonts = cwd.join("fonts");
+        if project_fonts.exists() { return Some(project_fonts); }
+    }
+    if cfg!(target_os = "macos") {
+        candidates.push(PathBuf::from("/System/Library/Fonts"));
+        candidates.push(PathBuf::from("/Library/Fonts"));
+        if let Ok(home) = std::env::var("HOME") {
+            candidates.push(PathBuf::from(format!("{home}/Library/Fonts")));
+        }
+    } else if cfg!(target_os = "windows") {
+        candidates.push(PathBuf::from("C:/Windows/Fonts"));
+    } else {
+        candidates.push(PathBuf::from("/usr/share/fonts"));
+        candidates.push(PathBuf::from("/usr/local/share/fonts"));
+        candidates.push(PathBuf::from("/usr/share/fonts/truetype"));
+    }
+
+    for pb in candidates {
+        if pb.exists() {
+            return Some(pb);
+        }
+    }
+    None
+}
+
+fn resolve_fonts_dir(preferred: Option<&Path>) -> Option<PathBuf> {
+    if let Some(p) = preferred {
+        if p.exists() { return Some(p.to_path_buf()); }
+    }
+    // Prefer project-local ./fonts if present
+    if let Ok(cwd) = std::env::current_dir() {
+        let p = cwd.join("fonts");
+        if p.exists() { return Some(p); }
+    }
+    // Fall back to env/system detection
+    detect_default_fonts_dir()
 }
