@@ -39,7 +39,7 @@ struct Args {
     whisper_model: String,
 
     /// Chat model for translation
-    #[arg(long, default_value = "gpt-4o-mini")]
+    #[arg(long, default_value = "gpt-5-mini")]
     translate_model: String,
 }
 
@@ -266,7 +266,6 @@ async fn translate_lines_zh_tw(
 
     let body = json!({
         "model": model,
-        "temperature": 0,
         // response_format json_object is supported by newer models; fallback to instruction-only if not supported.
         "response_format": {"type": "json_object"},
         "messages": [
