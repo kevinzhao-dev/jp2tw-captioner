@@ -12,7 +12,11 @@ use std::process::Command;
 use tempfile::tempdir;
 
 #[derive(Parser, Debug)]
-#[command(name = "video-translator", version, about = "Add Traditional Chinese subtitles translated from Japanese audio to mp4 videos using OpenAI")] 
+#[command(
+    name = "video-translator",
+    version,
+    about = "Add Traditional Chinese subtitles translated from Japanese audio to mp4 videos using OpenAI"
+)]
 struct Args {
     /// Input MP4 video file
     #[arg(short, long)]
@@ -65,7 +69,8 @@ async fn main() -> Result<()> {
         eprintln!("Warning: input is not .mp4; proceeding anyway");
     }
 
-    // API key
+    // Load .env if present, then read API key
+    let _ = dotenvy::dotenv();
     let api_key = env::var("OPENAI_API_KEY")
         .context("Set OPENAI_API_KEY environment variable for OpenAI access")?;
 
@@ -120,8 +125,8 @@ async fn main() -> Result<()> {
 
     // 5) Optionally mux or burn-in
     if args.burn_in || output_mp4.is_some() {
-        let out_mp4 = output_mp4
-            .unwrap_or_else(|| default_output_video_path(&args.input, args.burn_in));
+        let out_mp4 =
+            output_mp4.unwrap_or_else(|| default_output_video_path(&args.input, args.burn_in));
         if args.burn_in {
             progress.set_message("Burning subtitles into video (re-encode with ffmpeg)...");
             burn_in_subtitles(&args.input, &output_srt, &out_mp4)?;
@@ -176,7 +181,11 @@ fn extract_audio(input: &Path, wav_out: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn transcribe_whisper_verbose(wav_path: &Path, api_key: &str, model: &str) -> Result<WhisperVerboseJson> {
+async fn transcribe_whisper_verbose(
+    wav_path: &Path,
+    api_key: &str,
+    model: &str,
+) -> Result<WhisperVerboseJson> {
     let client = reqwest::Client::new();
 
     let mut file = File::open(wav_path).context("Open audio file for transcription")?;
@@ -234,7 +243,11 @@ struct ChatMessage {
     content: String,
 }
 
-async fn translate_lines_zh_tw(lines: &[String], api_key: &str, model: &str) -> Result<Vec<String>> {
+async fn translate_lines_zh_tw(
+    lines: &[String],
+    api_key: &str,
+    model: &str,
+) -> Result<Vec<String>> {
     if lines.is_empty() {
         return Ok(vec![]);
     }
@@ -285,9 +298,9 @@ async fn translate_lines_zh_tw(lines: &[String], api_key: &str, model: &str) -> 
 
     let parsed: serde_json::Value = serde_json::from_str(content)
         .context("Chat content not valid JSON; model may not support json_object format")?;
-    let arr = parsed["translations"].as_array().ok_or_else(|| anyhow!(
-        "Translation JSON missing 'translations' array"
-    ))?;
+    let arr = parsed["translations"]
+        .as_array()
+        .ok_or_else(|| anyhow!("Translation JSON missing 'translations' array"))?;
     let mut out = Vec::with_capacity(arr.len());
     for v in arr {
         out.push(v.as_str().unwrap_or("").to_string());
@@ -297,7 +310,8 @@ async fn translate_lines_zh_tw(lines: &[String], api_key: &str, model: &str) -> 
 
 fn write_srt(path: &Path, segments: &[WhisperSegment], lines: &[String]) -> Result<()> {
     use std::io::Write;
-    let mut f = std::fs::File::create(path).with_context(|| format!("Create SRT at {}", path.display()))?;
+    let mut f =
+        std::fs::File::create(path).with_context(|| format!("Create SRT at {}", path.display()))?;
 
     for (i, (seg, text)) in segments.iter().zip(lines.iter()).enumerate() {
         let idx = i + 1;
@@ -324,7 +338,10 @@ fn default_srt_path(input: &Path) -> PathBuf {
     let mut p = input.to_path_buf();
     p.set_extension("");
     let base = p.file_name().and_then(|s| s.to_str()).unwrap_or("output");
-    let mut out = input.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let mut out = input
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     out.push(format!("{}.zh-TW.srt", base));
     out
 }
@@ -333,7 +350,10 @@ fn default_output_video_path(input: &Path, burn_in: bool) -> PathBuf {
     let mut p = input.to_path_buf();
     p.set_extension("");
     let base = p.file_name().and_then(|s| s.to_str()).unwrap_or("output");
-    let mut out = input.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let mut out = input
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     if burn_in {
         out.push(format!("{}.zh-TW.burned.mp4", base));
     } else {
@@ -392,6 +412,7 @@ fn burn_in_subtitles(input: &Path, srt: &Path, out: &Path) -> Result<()> {
 fn escape_for_ffmpeg(path: &Path) -> String {
     // Basic escaping for spaces and special chars in filter args
     let s = path.to_string_lossy();
-    s.replace("\\", "\\\\").replace(":", "\\:").replace("=", "\\=")
+    s.replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("=", "\\=")
 }
-

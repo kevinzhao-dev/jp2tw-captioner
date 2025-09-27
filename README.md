@@ -15,6 +15,31 @@ Adds Traditional Chinese subtitles (translated from Japanese audio) to MP4 video
 - `ffmpeg` installed and available in `PATH`
 - OpenAI API key in environment: `OPENAI_API_KEY=sk-...`
 
+### Using a .env file
+
+This app loads a `.env` file automatically (via `dotenvy`) so you can avoid exporting the key in your shell each time.
+
+1) Create a file named `.env` in the project root:
+
+```
+OPENAI_API_KEY=sk-your-key
+```
+
+2) Make sure `.env` is ignored by git (already configured).
+
+3) Run the tool normally; it will read the key from `.env`:
+
+```
+cargo run --release -- --input /path/to/video.mp4
+```
+
+Alternative without code changes:
+
+```
+set -a; source .env; set +a
+./target/release/video-translator --input /path/to/video.mp4
+```
+
 ## Quick Start
 
 ```bash

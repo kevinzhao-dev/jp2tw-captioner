@@ -7,3 +7,5 @@ target/
 /.idea/
 /.vscode/
 
+# Local environment
+.env
