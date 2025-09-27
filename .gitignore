@@ -1,0 +1,9 @@
+target/
+.DS_Store
+*.srt
+*.mp4
+*.wav
+*.log
+/.idea/
+/.vscode/
+
