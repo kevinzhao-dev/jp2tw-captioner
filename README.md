@@ -57,26 +57,25 @@ OPENAI_API_KEY=sk-... \
   --input /path/to/video.mp4 \
   --output-srt /path/to/output.zh-TW.srt
 
-# Mux subtitles track into MP4 (mov_text)
-OPENAI_API_KEY=sk-... \
-  ./target/release/jp2tw-captioner \
-  --input /path/to/video.mp4 \
-  --output-mp4 /path/to/video.zh-TW.muxed.mp4
-
 # Burn-in subtitles (re-encode video)
 OPENAI_API_KEY=sk-... \
   ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
-  --burn-in \
-  --output-mp4 /path/to/video.zh-TW.burned.mp4
+  --output /path/to/video.zh.mp4
+
+# Default burn-in and filename if --output has no path
+OPENAI_API_KEY=sk-... \
+  ./target/release/jp2tw-captioner \
+  --input /path/to/video.mp4 \
+  --output
 ```
 
 ## CLI Options
 
 - `--input <FILE>`: Input MP4 path (required)
 - `--output-srt <FILE>`: Output SRT path (optional; default: `input.zh-TW.srt`)
-- `--output-mp4 <FILE>`: Output MP4 path with subtitles track or burned-in
-- `--burn-in`: Burn subtitles into the video (re-encode; implies `--output-mp4`)
+- `--output <FILE>`: Output MP4 path (default name if omitted)
+- `--burn-in`: Burn subtitles into the video (re-encode). If `--output` is provided, burn-in is used by default.
 - `--bilingual`: Output bilingual subtitles (ZH first line, JP second)
 - `--whisper-model <NAME>`: Transcription model (default: `whisper-1`)
 - `--translate-model <NAME>`: Translation chat model (default: `gpt-4o-mini`)
@@ -116,10 +115,9 @@ scripts/prepare_fonts.sh  # copies Noto CJK TC fonts into ./fonts
 ```
 ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
-  --burn-in \
   --font-dir ./fonts \
   --font-name "Noto Sans CJK TC" \
-  --output-mp4 /path/to/video.zh-TW.burned.mp4
+  --output /path/to/video.zh.mp4
 
 # or set an env var so --font-dir is optional
 export JP2TW_CAPTIONER_FONTS_DIR=./fonts

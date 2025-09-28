@@ -27,11 +27,11 @@ struct Args {
     #[arg(long)]
     output_srt: Option<PathBuf>,
 
-    /// Output MP4 file with subtitles track muxed in (mov_text)
-    #[arg(long)]
-    output_mp4: Option<PathBuf>,
+    /// Output MP4 file path (default name if omitted)
+    #[arg(long = "output", alias = "output-mp4")]
+    output: Option<PathBuf>,
 
-    /// Burn subtitles into the video (re-encode); implies --output-mp4
+    /// Burn subtitles into the video (re-encode). If --output is provided, burn-in is used by default.
     #[arg(long, default_value_t = false)]
     burn_in: bool,
 
@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
     let output_srt = args
         .output_srt
         .unwrap_or_else(|| default_srt_path(&args.input));
-    let output_mp4 = args.output_mp4.clone();
+    let output_mp4 = args.output.clone();
 
     let progress = ProgressBar::new_spinner();
     progress.set_style(
@@ -160,42 +160,37 @@ async fn main() -> Result<()> {
     progress.set_message("Writing SRT subtitles...");
     write_srt(&output_srt, &segments, &display_lines)?;
 
-    // 5) Optionally mux or burn-in
+    // 5) Optionally produce MP4 (default: burn-in)
     if args.burn_in || output_mp4.is_some() {
-        let out_mp4 =
-            output_mp4.unwrap_or_else(|| default_output_video_path(&args.input, args.burn_in));
-        if args.burn_in {
-            progress.set_message("Burning subtitles into video (re-encode with ffmpeg)...");
-            // Prepare an ASS file with an explicit font to avoid missing glyphs
-            let ass_path = tmp.path().join("subs.ass");
-            // Prefer Noto on macOS to avoid PingFangUI private path issues
-            let default_font = if cfg!(target_os = "macos") {
-                "Noto Sans CJK TC"
-            } else {
-                "Noto Sans CJK TC"
-            };
-            let chosen_font = args.font_name.as_deref().unwrap_or(default_font);
-            let font_size = args.font_size.unwrap_or(if args.bilingual { 30 } else { 36 });
-            write_ass(&ass_path, &segments, &display_lines, chosen_font, font_size)?;
-
-            // Try provided fonts dir or detect common/project fonts locations
-            let fonts_dir = resolve_fonts_dir(args.font_dir.as_deref());
-            if let Some(ref d) = fonts_dir {
-                eprintln!("Using fonts dir: {}", d.display());
-            } else {
-                eprintln!("Warning: no fonts dir found; relying on system fallback. You can run scripts/prepare_fonts.sh");
-            }
-            burn_in_subtitles(
-                &args.input,
-                &ass_path,
-                &out_mp4,
-                fonts_dir.as_deref(),
-                None,
-            )?;
+        let out_mp4 = output_mp4.unwrap_or_else(|| default_output_video_path(&args.input));
+        // Default behavior is burn-in, even if --burn-in not explicitly set
+        progress.set_message("Burning subtitles into video (re-encode with ffmpeg)...");
+        // Prepare an ASS file with an explicit font to avoid missing glyphs
+        let ass_path = tmp.path().join("subs.ass");
+        // Prefer Noto on macOS to avoid PingFangUI private path issues
+        let default_font = if cfg!(target_os = "macos") {
+            "Noto Sans CJK TC"
         } else {
-            progress.set_message("Muxing subtitles track into MP4 (mov_text)...");
-            mux_subtitles(&args.input, &output_srt, &out_mp4)?;
+            "Noto Sans CJK TC"
+        };
+        let chosen_font = args.font_name.as_deref().unwrap_or(default_font);
+        let font_size = args.font_size.unwrap_or(if args.bilingual { 30 } else { 36 });
+        write_ass(&ass_path, &segments, &display_lines, chosen_font, font_size)?;
+
+        // Try provided fonts dir or detect common/project fonts locations
+        let fonts_dir = resolve_fonts_dir(args.font_dir.as_deref());
+        if let Some(ref d) = fonts_dir {
+            eprintln!("Using fonts dir: {}", d.display());
+        } else {
+            eprintln!("Warning: no fonts dir found; relying on system fallback. You can run scripts/prepare_fonts.sh");
         }
+        burn_in_subtitles(
+            &args.input,
+            &ass_path,
+            &out_mp4,
+            fonts_dir.as_deref(),
+            None,
+        )?;
         progress.finish_with_message(format!(
             "Done. SRT: {} | Video: {}",
             output_srt.display(),
@@ -675,7 +670,7 @@ fn default_srt_path(input: &Path) -> PathBuf {
     out
 }
 
-fn default_output_video_path(input: &Path, burn_in: bool) -> PathBuf {
+fn default_output_video_path(input: &Path) -> PathBuf {
     let mut p = input.to_path_buf();
     p.set_extension("");
     let base = p.file_name().and_then(|s| s.to_str()).unwrap_or("output");
@@ -683,11 +678,7 @@ fn default_output_video_path(input: &Path, burn_in: bool) -> PathBuf {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
-    if burn_in {
-        out.push(format!("{}.zh-TW.burned.mp4", base));
-    } else {
-        out.push(format!("{}.zh-TW.muxed.mp4", base));
-    }
+    out.push(format!("{}.zh.mp4", base));
     out
 }
 
