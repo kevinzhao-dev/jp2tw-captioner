@@ -75,6 +75,14 @@ OPENAI_API_KEY=sk-... \
   --input /path/to/video.mp4 \
   --bilingual \
   --output
+
+# Long video best practice (smaller chunks, smaller batches)
+OPENAI_API_KEY=sk-... \
+  ./target/release/jp2tw-captioner \
+  --input /path/to/long-video.mp4 \
+  --chunk-seconds 300 \
+  --translate-batch-size 40 \
+  --output
 ```
 
 ## CLI Options

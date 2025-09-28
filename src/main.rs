@@ -926,3 +926,106 @@ fn resolve_fonts_dir(preferred: Option<&Path>) -> Option<PathBuf> {
     // Fall back to env/system detection
     detect_default_fonts_dir()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_srt_time() {
+        assert_eq!(format_srt_time(0.0), "00:00:00,000");
+        assert_eq!(format_srt_time(1.234), "00:00:01,234");
+        assert_eq!(format_srt_time(3661.234), "01:01:01,234");
+    }
+
+    #[test]
+    fn test_format_ass_time() {
+        assert_eq!(format_ass_time(0.0), "0:00:00.00");
+        assert_eq!(format_ass_time(1.23), "0:00:01.23");
+        assert_eq!(format_ass_time(3661.23), "1:01:01.23");
+    }
+
+    #[test]
+    fn test_default_paths() {
+        let input = PathBuf::from("/tmp/sample.mp4");
+        let srt = default_srt_path(&input);
+        assert_eq!(srt, PathBuf::from("/tmp/sample.zh-TW.srt"));
+
+        let mp4 = default_output_video_path(&input);
+        assert_eq!(mp4, PathBuf::from("/tmp/sample.zh.mp4"));
+    }
+
+    #[test]
+    fn test_escape_for_ffmpeg() {
+        let p = PathBuf::from("/a:b=c\\ d");
+        let esc = escape_for_ffmpeg(&p);
+        // ":" -> "\\:", "=" -> "\\=", "\\" -> "\\\\"
+        assert!(esc.contains("\\:"));
+        assert!(esc.contains("\\="));
+        assert!(esc.contains("\\\\"));
+    }
+
+    #[test]
+    fn test_write_srt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.srt");
+        let segments = vec![
+            WhisperSegment { id: Some(0), start: 0.0, end: 1.0, text: "JA0".into() },
+            WhisperSegment { id: Some(1), start: 2.5, end: 3.75, text: "JA1".into() },
+        ];
+        let lines = vec!["你好".to_string(), "世界".to_string()];
+        write_srt(&path, &segments, &lines).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        let expected = "1\n00:00:00,000 --> 00:00:01,000\n你好\n\n2\n00:00:02,500 --> 00:00:03,750\n世界\n\n";
+        assert_eq!(content, expected);
+    }
+
+    #[test]
+    fn test_write_ass() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.ass");
+        let segments = vec![
+            WhisperSegment { id: Some(0), start: 0.0, end: 1.0, text: "{JA0}".into() },
+            WhisperSegment { id: Some(1), start: 2.5, end: 3.75, text: "line1\nline2".into() },
+        ];
+        let lines = vec!["你好".to_string(), "世界".to_string()];
+        write_ass(&path, &segments, &lines, "My Font", 30).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("Style: Default,My Font,30"));
+        // Curly braces in input are replaced in Dialogue text
+        assert!(content.contains(",Default,,0,0,0,,你好"));
+        // Newlines become \N in ASS
+        assert!(content.contains("世界"));
+        assert!(!content.contains("{JA0}"));
+        assert!(content.contains("0:00:00.00"));
+        assert!(content.contains("0:00:01.00"));
+        assert!(content.contains("0:00:02.50"));
+        assert!(content.contains("0:00:03.75"));
+    }
+
+    #[test]
+    fn test_json_helpers() {
+        // Plain JSON
+        let s = r#"{"translations":["a","b"]}"#;
+        let v = try_parse_translations_json(s).unwrap();
+        assert_eq!(v, vec!["a", "b"]);
+
+        // Fenced JSON
+        let s2 = "```json\n{\n  \"translations\":[\"x\",\"y\"]\n}\n```";
+        let v2 = try_parse_translations_json(s2).unwrap();
+        assert_eq!(v2, vec!["x", "y"]);
+
+        // Embedded JSON
+        let s3 = "Here is your result:\n{\"translations\":[\"m\",\"n\"]}\nThanks";
+        let obj = extract_first_json_object(s3).unwrap();
+        let v3 = try_parse_translations_json(&obj).unwrap();
+        assert_eq!(v3, vec!["m", "n"]);
+    }
+
+    #[test]
+    fn test_resolve_fonts_dir_prefers_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        let chosen = resolve_fonts_dir(Some(dir.path()));
+        assert_eq!(chosen.unwrap(), dir.path());
+    }
+}
