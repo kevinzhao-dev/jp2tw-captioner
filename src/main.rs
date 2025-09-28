@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
@@ -10,6 +10,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::tempdir;
+use tokio::time::{sleep, Duration};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -46,9 +47,16 @@ struct Args {
     #[arg(long, default_value = "whisper-1")]
     whisper_model: String,
 
+    /// Max seconds per audio chunk for transcription
+    #[arg(long, default_value_t = 600)]
+    chunk_seconds: u32,
+
     /// Chat model for translation
-    #[arg(long, default_value = "gpt-5-mini")]
+    #[arg(long, default_value = "gpt-4o-mini")]
     translate_model: String,
+    /// Max subtitle lines per translation batch
+    #[arg(long, default_value_t = 60)]
+    translate_batch_size: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,12 +112,9 @@ async fn main() -> Result<()> {
     let wav_path = tmp.path().join("audio_16k_mono.wav");
     extract_audio(&args.input, &wav_path)?;
 
-    // 2) Transcribe (Japanese) with Whisper
+    // 2) Transcribe (Japanese) with Whisper (chunked for long videos)
     progress.set_message("Transcribing Japanese audio (OpenAI Whisper)...");
-    let transcript = transcribe_whisper_verbose(&wav_path, &api_key, &args.whisper_model).await?;
-    let segments = transcript
-        .segments
-        .ok_or_else(|| anyhow!("No segments returned by Whisper (enable verbose_json support)"))?;
+    let segments = transcribe_whisper_chunked(&wav_path, &api_key, &args.whisper_model, args.chunk_seconds).await?;
 
     if segments.is_empty() {
         return Err(anyhow!("Whisper returned zero segments"));
@@ -118,7 +123,13 @@ async fn main() -> Result<()> {
     // 3) Translate to Traditional Chinese using GPT
     progress.set_message("Translating to Traditional Chinese (OpenAI GPT)...");
     let ja_lines: Vec<String> = segments.iter().map(|s| s.text.clone()).collect();
-    let zh_lines = translate_lines_zh_tw(&ja_lines, &api_key, &args.translate_model).await?;
+    let zh_lines = translate_lines_zh_tw(
+        &ja_lines,
+        &api_key,
+        &args.translate_model,
+        args.translate_batch_size,
+    )
+    .await?;
     if zh_lines.len() != ja_lines.len() {
         return Err(anyhow!(
             "Translation count mismatch: {} vs {}",
@@ -193,6 +204,7 @@ fn extract_audio(input: &Path, wav_out: &Path) -> Result<()> {
     // 16kHz mono PCM WAV
     let status = Command::new("ffmpeg")
         .args([
+            "-nostdin",
             "-y",
             "-i",
             input.to_str().unwrap(),
@@ -260,6 +272,107 @@ async fn transcribe_whisper_verbose(
     Ok(json)
 }
 
+async fn transcribe_whisper_chunked(
+    wav_path: &Path,
+    api_key: &str,
+    model: &str,
+    chunk_seconds: u32,
+) -> Result<Vec<WhisperSegment>> {
+    // Split the audio into chunked WAV files using ffmpeg segmenter
+    let out_dir = wav_path.parent().unwrap_or_else(|| Path::new("."));
+    let pattern = out_dir.join("chunk_%05d.wav");
+
+    // Remove any prior chunk files with same pattern
+    // Best-effort cleanup; ignore errors
+    if let Ok(entries) = std::fs::read_dir(out_dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                if name.starts_with("chunk_") && name.ends_with(".wav") {
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+        }
+    }
+
+    let status = Command::new("ffmpeg")
+        .args([
+            "-nostdin",
+            "-y",
+            "-i",
+            wav_path.to_str().unwrap(),
+            "-f",
+            "segment",
+            "-segment_time",
+            &chunk_seconds.to_string(),
+            "-c",
+            "copy",
+            pattern.to_str().unwrap(),
+        ])
+        .status()
+        .context("ffmpeg segmenting failed")?;
+    if !status.success() {
+        return Err(anyhow!("ffmpeg failed to segment audio"));
+    }
+
+    // Collect chunk files sorted
+    let mut chunks: Vec<PathBuf> = std::fs::read_dir(out_dir)
+        .context("read chunk dir")?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().and_then(|s| s.to_str()).map(|n| n.starts_with("chunk_") && n.ends_with(".wav")).unwrap_or(false))
+        .collect();
+    chunks.sort();
+    if chunks.is_empty() {
+        return Err(anyhow!("No audio chunks were produced"));
+    }
+
+    let mut all: Vec<WhisperSegment> = Vec::new();
+    for (i, chunk) in chunks.iter().enumerate() {
+        eprintln!("Transcribing chunk {}/{}: {}", i + 1, chunks.len(), chunk.display());
+
+        // Retry on transient errors (5xx/429) with exponential backoff
+        let mut attempt = 0;
+        let max_attempts = 5;
+        let mut last_err: Option<anyhow::Error> = None;
+        let res: Option<WhisperVerboseJson> = loop {
+            match transcribe_whisper_verbose(chunk, api_key, model).await {
+                Ok(json) => break Some(json),
+                Err(e) => {
+                    let msg = format!("{}", e);
+                    // Retry for server errors or rate limits
+                    if msg.contains(" 500 ") || msg.contains(" 502 ") || msg.contains(" 503 ") || msg.contains("429") {
+                        attempt += 1;
+                        if attempt >= max_attempts {
+                            last_err = Some(e);
+                            break None;
+                        }
+                        let backoff = 2u64.pow(attempt) * 1000; // ms
+                        eprintln!("OpenAI error (attempt {}/{}). Retrying in {}ms...", attempt, max_attempts, backoff);
+                        sleep(Duration::from_millis(backoff)).await;
+                    } else {
+                        last_err = Some(e);
+                        break None;
+                    }
+                }
+            }
+        };
+        let json = res.ok_or_else(|| last_err.unwrap())?;
+
+        let mut segs = json
+            .segments
+            .ok_or_else(|| anyhow!("No segments returned by Whisper (verbose_json) for chunk {}", i))?;
+        let offset = (i as f64) * (chunk_seconds as f64);
+        for s in segs.iter_mut() {
+            s.start += offset;
+            s.end += offset;
+        }
+        all.extend(segs.into_iter());
+    }
+
+    Ok(all)
+}
+
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     choices: Vec<ChatChoice>,
@@ -279,11 +392,60 @@ async fn translate_lines_zh_tw(
     lines: &[String],
     api_key: &str,
     model: &str,
+    batch_size: usize,
 ) -> Result<Vec<String>> {
     if lines.is_empty() {
         return Ok(vec![]);
     }
 
+    let mut result = Vec::with_capacity(lines.len());
+    let mut idx = 0;
+    while idx < lines.len() {
+        let end = usize::min(idx + batch_size.max(1), lines.len());
+        let batch = &lines[idx..end];
+        let translated = translate_batch_strict(batch, api_key, model).await?;
+        result.extend(translated);
+        idx = end;
+    }
+    Ok(result)
+}
+
+async fn translate_batch_strict(lines: &[String], api_key: &str, model: &str) -> Result<Vec<String>> {
+    let n = lines.len();
+    let mut out: Vec<Option<String>> = vec![None; n];
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+    if n > 0 { stack.push((0, n)); }
+
+    while let Some((start, end)) = stack.pop() {
+        let len = end - start;
+        if len == 0 { continue; }
+        match translate_batch(&lines[start..end], api_key, model).await {
+            Ok(v) if v.len() == len => {
+                for (i, t) in v.into_iter().enumerate() { out[start + i] = Some(t); }
+            }
+            Ok(_) | Err(_) => {
+                if len == 1 {
+                    let t = translate_single_fallback(&lines[start], api_key, model).await?;
+                    out[start] = Some(t);
+                } else {
+                    let mid = start + len / 2;
+                    // Process right later, left first
+                    stack.push((mid, end));
+                    stack.push((start, mid));
+                }
+            }
+        }
+    }
+
+    // Collect and ensure all present
+    let mut result = Vec::with_capacity(n);
+    for i in 0..n {
+        if let Some(t) = out[i].take() { result.push(t); } else { return Err(anyhow!("Failed to translate line {}", i)); }
+    }
+    Ok(result)
+}
+
+async fn translate_batch(lines: &[String], api_key: &str, model: &str) -> Result<Vec<String>> {
     let client = reqwest::Client::new();
     // Instruct model to return strict JSON
     let system = "You are a professional translator. Translate Japanese to Traditional Chinese (Taiwan). Keep meaning, tone, and honorific nuance. Do not add explanations.";
@@ -306,37 +468,154 @@ async fn translate_lines_zh_tw(
         ]
     });
 
-    let resp = client
-        .post("https://api.openai.com/v1/chat/completions")
-        .bearer_auth(api_key)
-        .header(CONTENT_TYPE, "application/json")
-        .body(body.to_string())
-        .send()
-        .await
-        .context("OpenAI translation request failed")?;
+    // Retry on transient errors similar to transcription
+    let mut attempt = 0;
+    let max_attempts = 5;
+    let raw: serde_json::Value = loop {
+        let resp = client
+            .post("https://api.openai.com/v1/chat/completions")
+            .bearer_auth(api_key)
+            .header(CONTENT_TYPE, "application/json")
+            .body(body.to_string())
+            .send()
+            .await
+            .context("OpenAI translation request failed")?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("OpenAI translation error {}: {}", status, text));
-    }
+        if resp.status().is_success() {
+            break resp.json().await.context("Parse chat response JSON")?;
+        } else {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            let msg = format!("{} {}", status, text);
+            if msg.contains(" 500 ") || msg.contains(" 502 ") || msg.contains(" 503 ") || msg.contains("429") {
+                attempt += 1;
+                if attempt >= max_attempts {
+                    return Err(anyhow!("OpenAI translation error {}: {}", status, text));
+                }
+                let backoff = 2u64.pow(attempt) * 1000;
+                eprintln!(
+                    "Translation retry {}/{} after error (status {}), waiting {}ms",
+                    attempt, max_attempts, status, backoff
+                );
+                sleep(Duration::from_millis(backoff)).await;
+                continue;
+            } else {
+                return Err(anyhow!("OpenAI translation error {}: {}", status, text));
+            }
+        }
+    };
 
-    // Parse JSON content from message
-    let raw: serde_json::Value = resp.json().await.context("Parse chat response JSON")?;
     let content = raw["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| anyhow!("Unexpected chat response structure"))?;
 
-    let parsed: serde_json::Value = serde_json::from_str(content)
-        .context("Chat content not valid JSON; model may not support json_object format")?;
-    let arr = parsed["translations"]
-        .as_array()
-        .ok_or_else(|| anyhow!("Translation JSON missing 'translations' array"))?;
-    let mut out = Vec::with_capacity(arr.len());
-    for v in arr {
-        out.push(v.as_str().unwrap_or("").to_string());
+    // Be tolerant: try content directly, then strip code fences, then find braces
+    if let Some(v) = try_parse_translations_json(content) {
+        return Ok(v);
     }
-    Ok(out)
+    // Fallback: try to slice out the first {...} block
+    let json_obj = extract_first_json_object(content).and_then(|s| try_parse_translations_json(&s));
+    if let Some(v) = json_obj {
+        return Ok(v);
+    }
+
+    Err(anyhow!("Translation JSON missing 'translations' array"))
+}
+
+fn try_parse_translations_json(s: &str) -> Option<Vec<String>> {
+    let trimmed = s.trim();
+    let candidate = if trimmed.starts_with("```") {
+        // Possible fenced code block
+        trimmed
+            .trim_start_matches("```json")
+            .trim_start_matches("```JSON")
+            .trim_start_matches("```) ")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim()
+            .to_string()
+    } else {
+        trimmed.to_string()
+    };
+    match serde_json::from_str::<serde_json::Value>(&candidate) {
+        Ok(v) => v["translations"].as_array().map(|arr| {
+            arr.iter()
+                .map(|x| x.as_str().unwrap_or("").to_string())
+                .collect::<Vec<_>>()
+        }),
+        Err(_) => None,
+    }
+}
+
+fn extract_first_json_object(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut depth = 0i32;
+    let mut start: Option<usize> = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'{' {
+            if depth == 0 { start = Some(i); }
+            depth += 1;
+        } else if b == b'}' {
+            depth -= 1;
+            if depth == 0 {
+                if let Some(st) = start { return Some(s[st..=i].to_string()); }
+            }
+        }
+    }
+    None
+}
+
+async fn translate_single_fallback(text: &str, api_key: &str, model: &str) -> Result<String> {
+    let client = reqwest::Client::new();
+    let system = "You are a professional translator. Translate Japanese to Traditional Chinese (Taiwan). Output only the translated text without quotes or explanations.";
+    let user = text;
+
+    // Retry similar to batch
+    let mut attempt = 0;
+    let max_attempts = 5;
+    loop {
+        let body = json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user}
+            ]
+        });
+        let resp = client
+            .post("https://api.openai.com/v1/chat/completions")
+            .bearer_auth(api_key)
+            .header(CONTENT_TYPE, "application/json")
+            .body(body.to_string())
+            .send()
+            .await
+            .context("OpenAI translation request failed")?;
+        if resp.status().is_success() {
+            let raw: serde_json::Value = resp.json().await.context("Parse chat response JSON")?;
+            let content = raw["choices"][0]["message"]["content"].as_str().unwrap_or("").trim().to_string();
+            // Strip surrounding quotes if any
+            let cleaned = content.trim_matches('"').to_string();
+            return Ok(cleaned);
+        } else {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            let msg = format!("{} {}", status, text);
+            if msg.contains(" 500 ") || msg.contains(" 502 ") || msg.contains(" 503 ") || msg.contains("429") {
+                attempt += 1;
+                if attempt >= max_attempts {
+                    return Err(anyhow!("OpenAI translation error {}: {}", status, text));
+                }
+                let backoff = 2u64.pow(attempt) * 1000;
+                eprintln!(
+                    "Single translation retry {}/{} after error (status {}), waiting {}ms",
+                    attempt, max_attempts, status, backoff
+                );
+                sleep(Duration::from_millis(backoff)).await;
+                continue;
+            } else {
+                return Err(anyhow!("OpenAI translation error {}: {}", status, text));
+            }
+        }
+    }
 }
 
 fn write_srt(path: &Path, segments: &[WhisperSegment], lines: &[String]) -> Result<()> {
@@ -397,6 +676,7 @@ fn mux_subtitles(input: &Path, srt: &Path, out: &Path) -> Result<()> {
     // Add SRT as mov_text subtitles track without re-encoding video
     let status = Command::new("ffmpeg")
         .args([
+            "-nostdin",
             "-y",
             "-i",
             input.to_str().unwrap(),
@@ -442,6 +722,7 @@ fn burn_in_subtitles(
     }
     let status = Command::new("ffmpeg")
         .args([
+            "-nostdin",
             "-y",
             "-i",
             input.to_str().unwrap(),
