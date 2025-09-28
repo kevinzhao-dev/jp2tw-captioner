@@ -28,7 +28,7 @@ struct Args {
     output_srt: Option<PathBuf>,
 
     /// Output MP4 file path (default name if omitted)
-    #[arg(long = "output", alias = "output-mp4")]
+    #[arg(long = "output")]
     output: Option<PathBuf>,
 
     /// Burn subtitles into the video (re-encode). If --output is provided, burn-in is used by default.
@@ -122,7 +122,9 @@ async fn main() -> Result<()> {
 
     // 2) Transcribe (Japanese) with Whisper (chunked for long videos)
     progress.set_message("Transcribing Japanese audio (OpenAI Whisper)...");
-    let segments = transcribe_whisper_chunked(&wav_path, &api_key, &args.whisper_model, args.chunk_seconds).await?;
+    let segments =
+        transcribe_whisper_chunked(&wav_path, &api_key, &args.whisper_model, args.chunk_seconds)
+            .await?;
 
     if segments.is_empty() {
         return Err(anyhow!("Whisper returned zero segments"));
@@ -174,7 +176,9 @@ async fn main() -> Result<()> {
             "Noto Sans CJK TC"
         };
         let chosen_font = args.font_name.as_deref().unwrap_or(default_font);
-        let font_size = args.font_size.unwrap_or(if args.bilingual { 30 } else { 36 });
+        let font_size = args
+            .font_size
+            .unwrap_or(if args.bilingual { 30 } else { 36 });
         write_ass(&ass_path, &segments, &display_lines, chosen_font, font_size)?;
 
         // Try provided fonts dir or detect common/project fonts locations
@@ -184,13 +188,7 @@ async fn main() -> Result<()> {
         } else {
             eprintln!("Warning: no fonts dir found; relying on system fallback. You can run scripts/prepare_fonts.sh");
         }
-        burn_in_subtitles(
-            &args.input,
-            &ass_path,
-            &out_mp4,
-            fonts_dir.as_deref(),
-            None,
-        )?;
+        burn_in_subtitles(&args.input, &ass_path, &out_mp4, fonts_dir.as_deref(), None)?;
         progress.finish_with_message(format!(
             "Done. SRT: {} | Video: {}",
             output_srt.display(),
@@ -334,7 +332,12 @@ async fn transcribe_whisper_chunked(
         .context("read chunk dir")?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|s| s.to_str()).map(|n| n.starts_with("chunk_") && n.ends_with(".wav")).unwrap_or(false))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .map(|n| n.starts_with("chunk_") && n.ends_with(".wav"))
+                .unwrap_or(false)
+        })
         .collect();
     chunks.sort();
     if chunks.is_empty() {
@@ -343,7 +346,12 @@ async fn transcribe_whisper_chunked(
 
     let mut all: Vec<WhisperSegment> = Vec::new();
     for (i, chunk) in chunks.iter().enumerate() {
-        eprintln!("Transcribing chunk {}/{}: {}", i + 1, chunks.len(), chunk.display());
+        eprintln!(
+            "Transcribing chunk {}/{}: {}",
+            i + 1,
+            chunks.len(),
+            chunk.display()
+        );
 
         // Retry on transient errors (5xx/429) with exponential backoff
         let mut attempt = 0;
@@ -355,14 +363,21 @@ async fn transcribe_whisper_chunked(
                 Err(e) => {
                     let msg = format!("{}", e);
                     // Retry for server errors or rate limits
-                    if msg.contains(" 500 ") || msg.contains(" 502 ") || msg.contains(" 503 ") || msg.contains("429") {
+                    if msg.contains(" 500 ")
+                        || msg.contains(" 502 ")
+                        || msg.contains(" 503 ")
+                        || msg.contains("429")
+                    {
                         attempt += 1;
                         if attempt >= max_attempts {
                             last_err = Some(e);
                             break None;
                         }
                         let backoff = 2u64.pow(attempt) * 1000; // ms
-                        eprintln!("OpenAI error (attempt {}/{}). Retrying in {}ms...", attempt, max_attempts, backoff);
+                        eprintln!(
+                            "OpenAI error (attempt {}/{}). Retrying in {}ms...",
+                            attempt, max_attempts, backoff
+                        );
                         sleep(Duration::from_millis(backoff)).await;
                     } else {
                         last_err = Some(e);
@@ -373,9 +388,12 @@ async fn transcribe_whisper_chunked(
         };
         let json = res.ok_or_else(|| last_err.unwrap())?;
 
-        let mut segs = json
-            .segments
-            .ok_or_else(|| anyhow!("No segments returned by Whisper (verbose_json) for chunk {}", i))?;
+        let mut segs = json.segments.ok_or_else(|| {
+            anyhow!(
+                "No segments returned by Whisper (verbose_json) for chunk {}",
+                i
+            )
+        })?;
         let offset = (i as f64) * (chunk_seconds as f64);
         for s in segs.iter_mut() {
             s.start += offset;
@@ -424,18 +442,28 @@ async fn translate_lines_zh_tw(
     Ok(result)
 }
 
-async fn translate_batch_strict(lines: &[String], api_key: &str, model: &str) -> Result<Vec<String>> {
+async fn translate_batch_strict(
+    lines: &[String],
+    api_key: &str,
+    model: &str,
+) -> Result<Vec<String>> {
     let n = lines.len();
     let mut out: Vec<Option<String>> = vec![None; n];
     let mut stack: Vec<(usize, usize)> = Vec::new();
-    if n > 0 { stack.push((0, n)); }
+    if n > 0 {
+        stack.push((0, n));
+    }
 
     while let Some((start, end)) = stack.pop() {
         let len = end - start;
-        if len == 0 { continue; }
+        if len == 0 {
+            continue;
+        }
         match translate_batch(&lines[start..end], api_key, model).await {
             Ok(v) if v.len() == len => {
-                for (i, t) in v.into_iter().enumerate() { out[start + i] = Some(t); }
+                for (i, t) in v.into_iter().enumerate() {
+                    out[start + i] = Some(t);
+                }
             }
             Ok(_) | Err(_) => {
                 if len == 1 {
@@ -454,7 +482,11 @@ async fn translate_batch_strict(lines: &[String], api_key: &str, model: &str) ->
     // Collect and ensure all present
     let mut result = Vec::with_capacity(n);
     for i in 0..n {
-        if let Some(t) = out[i].take() { result.push(t); } else { return Err(anyhow!("Failed to translate line {}", i)); }
+        if let Some(t) = out[i].take() {
+            result.push(t);
+        } else {
+            return Err(anyhow!("Failed to translate line {}", i));
+        }
     }
     Ok(result)
 }
@@ -501,7 +533,11 @@ async fn translate_batch(lines: &[String], api_key: &str, model: &str) -> Result
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             let msg = format!("{} {}", status, text);
-            if msg.contains(" 500 ") || msg.contains(" 502 ") || msg.contains(" 503 ") || msg.contains("429") {
+            if msg.contains(" 500 ")
+                || msg.contains(" 502 ")
+                || msg.contains(" 503 ")
+                || msg.contains("429")
+            {
                 attempt += 1;
                 if attempt >= max_attempts {
                     return Err(anyhow!("OpenAI translation error {}: {}", status, text));
@@ -567,12 +603,16 @@ fn extract_first_json_object(s: &str) -> Option<String> {
     let mut start: Option<usize> = None;
     for (i, &b) in bytes.iter().enumerate() {
         if b == b'{' {
-            if depth == 0 { start = Some(i); }
+            if depth == 0 {
+                start = Some(i);
+            }
             depth += 1;
         } else if b == b'}' {
             depth -= 1;
             if depth == 0 {
-                if let Some(st) = start { return Some(s[st..=i].to_string()); }
+                if let Some(st) = start {
+                    return Some(s[st..=i].to_string());
+                }
             }
         }
     }
@@ -605,7 +645,11 @@ async fn translate_single_fallback(text: &str, api_key: &str, model: &str) -> Re
             .context("OpenAI translation request failed")?;
         if resp.status().is_success() {
             let raw: serde_json::Value = resp.json().await.context("Parse chat response JSON")?;
-            let content = raw["choices"][0]["message"]["content"].as_str().unwrap_or("").trim().to_string();
+            let content = raw["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string();
             // Strip surrounding quotes if any
             let cleaned = content.trim_matches('"').to_string();
             return Ok(cleaned);
@@ -613,7 +657,11 @@ async fn translate_single_fallback(text: &str, api_key: &str, model: &str) -> Re
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             let msg = format!("{} {}", status, text);
-            if msg.contains(" 500 ") || msg.contains(" 502 ") || msg.contains(" 503 ") || msg.contains("429") {
+            if msg.contains(" 500 ")
+                || msg.contains(" 502 ")
+                || msg.contains(" 503 ")
+                || msg.contains("429")
+            {
                 attempt += 1;
                 if attempt >= max_attempts {
                     return Err(anyhow!("OpenAI translation error {}: {}", status, text));
@@ -723,7 +771,12 @@ fn burn_in_subtitles(
     }
     // If an ASS file was generated with a Style font, don't override via force_style.
     // Only apply force_style for plain SRT inputs when an explicit font is requested.
-    if subs.extension().and_then(|s| s.to_str()).map(|e| e.eq_ignore_ascii_case("ass")) == Some(false) {
+    if subs
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|e| e.eq_ignore_ascii_case("ass"))
+        == Some(false)
+    {
         if let Some(name) = font_name {
             let safe = name.replace("'", "\\'");
             filter.push_str(":force_style=");
@@ -766,8 +819,8 @@ fn write_ass(
     font_size: u32,
 ) -> Result<()> {
     use std::io::Write;
-    let mut f = std::fs::File::create(path)
-        .with_context(|| format!("Create ASS at {}", path.display()))?;
+    let mut f =
+        std::fs::File::create(path).with_context(|| format!("Create ASS at {}", path.display()))?;
 
     // Basic ASS header with a single style
     writeln!(f, "[Script Info]")?;
@@ -783,7 +836,10 @@ fn write_ass(
     writeln!(f, "Style: Default,{font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1")?;
     writeln!(f, "")?;
     writeln!(f, "[Events]")?;
-    writeln!(f, "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")?;
+    writeln!(
+        f,
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+    )?;
 
     for (seg, text) in segments.iter().zip(lines.iter()) {
         let start = format_ass_time(seg.start);
@@ -814,17 +870,23 @@ fn detect_default_fonts_dir() -> Option<PathBuf> {
     // Highest priority: env override (new name), fallback to legacy var
     if let Ok(env_dir) = std::env::var("JP2TW_CAPTIONER_FONTS_DIR") {
         let p = PathBuf::from(env_dir);
-        if p.exists() { return Some(p); }
+        if p.exists() {
+            return Some(p);
+        }
     }
     if let Ok(env_dir) = std::env::var("VIDEO_TRANSLATOR_FONTS_DIR") {
         let p = PathBuf::from(env_dir);
-        if p.exists() { return Some(p); }
+        if p.exists() {
+            return Some(p);
+        }
     }
 
     // Project-local fonts folder next
     if let Ok(cwd) = std::env::current_dir() {
         let project_fonts = cwd.join("fonts");
-        if project_fonts.exists() { return Some(project_fonts); }
+        if project_fonts.exists() {
+            return Some(project_fonts);
+        }
     }
     if cfg!(target_os = "macos") {
         candidates.push(PathBuf::from("/System/Library/Fonts"));
@@ -850,12 +912,16 @@ fn detect_default_fonts_dir() -> Option<PathBuf> {
 
 fn resolve_fonts_dir(preferred: Option<&Path>) -> Option<PathBuf> {
     if let Some(p) = preferred {
-        if p.exists() { return Some(p.to_path_buf()); }
+        if p.exists() {
+            return Some(p.to_path_buf());
+        }
     }
     // Prefer project-local ./fonts if present
     if let Ok(cwd) = std::env::current_dir() {
         let p = cwd.join("fonts");
-        if p.exists() { return Some(p); }
+        if p.exists() {
+            return Some(p);
+        }
     }
     // Fall back to env/system detection
     detect_default_fonts_dir()
