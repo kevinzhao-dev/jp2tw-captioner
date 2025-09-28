@@ -46,7 +46,7 @@ set -a; source .env; set +a
 # Build
 cargo build --release
 
-# Basic: produce SRT alongside input
+# Basic: produce bilingual SRT and burned-in MP4 (default)
 OPENAI_API_KEY=sk-... \
   ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4
@@ -57,24 +57,23 @@ OPENAI_API_KEY=sk-... \
   --input /path/to/video.mp4 \
   --output-srt /path/to/output.zh-TW.srt
 
-# Burn-in subtitles (re-encode video)
+# Burn-in subtitles with custom output name
 OPENAI_API_KEY=sk-... \
   ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
   --output /path/to/video.zh.mp4
 
-# Default burn-in and filename if --output has no path
+# Default filename if --output has no path (uses input.zh.mp4)
 OPENAI_API_KEY=sk-... \
   ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
   --output
 
-# Bilingual burned-in subtitles (ZH first line, JP second)
+# Disable bilingual or adjust font size if desired
 OPENAI_API_KEY=sk-... \
   ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
-  --bilingual \
-  --output
+  --font-size 28
 
 # Long video best practice (smaller chunks, smaller batches)
 OPENAI_API_KEY=sk-... \
@@ -89,9 +88,9 @@ OPENAI_API_KEY=sk-... \
 
 - `--input <FILE>`: Input MP4 path (required)
 - `--output-srt <FILE>`: Output SRT path (optional; default: `input.zh-TW.srt`)
-- `--output <FILE>`: Output MP4 path (default name if omitted)
-- `--burn-in`: Burn subtitles into the video (re-encode). If `--output` is provided, burn-in is used by default.
-- `--bilingual`: Output bilingual subtitles (ZH first line, JP second)
+- `--output <FILE>`: Output MP4 path (default name if omitted). Default behavior burns in subtitles and writes MP4.
+- `--burn-in`: Burn subtitles into the video (re-encode). Default: on.
+- `--bilingual`: Output bilingual subtitles (ZH first line, JP second). Default: on.
 - `--whisper-model <NAME>`: Transcription model (default: `whisper-1`)
 - `--translate-model <NAME>`: Translation chat model (default: `gpt-4o-mini`)
 - `--translate-batch-size <N>`: Lines per translation batch (default: 60)

@@ -31,12 +31,12 @@ struct Args {
     #[arg(long = "output", num_args(0..=1), default_missing_value = "__AUTO__")]
     output: Option<String>,
 
-    /// Burn subtitles into the video (re-encode). If --output is provided, burn-in is used by default.
-    #[arg(long, default_value_t = false)]
+    /// Burn subtitles into the video (re-encode). Default: on.
+    #[arg(long, default_value_t = true)]
     burn_in: bool,
 
-    /// Output bilingual subtitles (ZH first line, JP second line)
-    #[arg(long, default_value_t = false)]
+    /// Output bilingual subtitles (ZH first line, JP second line). Default: on.
+    #[arg(long, default_value_t = true)]
     bilingual: bool,
 
     /// Directory containing fonts for burn-in (libass fontsdir)
