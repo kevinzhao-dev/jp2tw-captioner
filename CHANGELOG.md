@@ -2,7 +2,7 @@
 
 ## v1.0.0
 
-- Initial release of jp2tw-captioner
+- Initial release of jp2tw-subs
 - Adds Traditional Chinese subtitles (translated from Japanese) to MP4 videos
 - Whisper transcription with chunking + retries for long videos
 - GPT translation with batching + retries and tolerant JSON parsing

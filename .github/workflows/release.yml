@@ -21,21 +21,21 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          BIN=jp2tw-captioner
+          BIN=jp2tw-subs
           cp target/release/$BIN dist/$BIN-${{ runner.os }}-${{ runner.arch }}
           tar -C dist -czf $BIN-${{ runner.os }}-${{ runner.arch }}.tar.gz $BIN-${{ runner.os }}-${{ runner.arch }}
       - name: Archive artifact (Windows)
         if: runner.os == 'Windows'
         run: |
           mkdir dist
-          set BIN=jp2tw-captioner.exe
-          copy target\release\%BIN% dist\jp2tw-captioner-Windows-%PROCESSOR_ARCHITECTURE%.exe
+          set BIN=jp2tw-subs.exe
+          copy target\release\%BIN% dist\jp2tw-subs-Windows-%PROCESSOR_ARCHITECTURE%.exe
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            jp2tw-captioner-*.tar.gz
-            dist/jp2tw-captioner-Windows-*.exe
+            jp2tw-subs-*.tar.gz
+            dist/jp2tw-subs-Windows-*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

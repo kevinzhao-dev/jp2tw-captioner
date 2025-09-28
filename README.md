@@ -37,7 +37,7 @@ Alternative without code changes:
 
 ```
 set -a; source .env; set +a
-./target/release/jp2tw-captioner --input /path/to/video.mp4
+./target/release/jp2tw-subs --input /path/to/video.mp4
 ```
 
 ## Quick Start
@@ -48,36 +48,36 @@ cargo build --release
 
 # Basic: produce bilingual SRT and burned-in MP4 (default)
 OPENAI_API_KEY=sk-... \
-  ./target/release/jp2tw-captioner \
+  ./target/release/jp2tw-subs \
   --input /path/to/video.mp4
 
 # Custom SRT path
 OPENAI_API_KEY=sk-... \
-  ./target/release/jp2tw-captioner \
+  ./target/release/jp2tw-subs \
   --input /path/to/video.mp4 \
   --output-srt /path/to/output.zh-TW.srt
 
 # Burn-in subtitles with custom output name
 OPENAI_API_KEY=sk-... \
-  ./target/release/jp2tw-captioner \
+  ./target/release/jp2tw-subs \
   --input /path/to/video.mp4 \
   --output /path/to/video.zh.mp4
 
 # Default filename if --output has no path (uses input.zh.mp4)
 OPENAI_API_KEY=sk-... \
-  ./target/release/jp2tw-captioner \
+  ./target/release/jp2tw-subs \
   --input /path/to/video.mp4 \
   --output
 
 # Disable bilingual or adjust font size if desired
 OPENAI_API_KEY=sk-... \
-  ./target/release/jp2tw-captioner \
+  ./target/release/jp2tw-subs \
   --input /path/to/video.mp4 \
   --font-size 28
 
 # Long video best practice (smaller chunks, smaller batches)
 OPENAI_API_KEY=sk-... \
-  ./target/release/jp2tw-captioner \
+  ./target/release/jp2tw-subs \
   --input /path/to/long-video.mp4 \
   --chunk-seconds 300 \
   --translate-batch-size 40 \
@@ -127,14 +127,14 @@ scripts/prepare_fonts.sh  # copies Noto CJK TC fonts into ./fonts
 3) Use the fonts directory
 
 ```
-./target/release/jp2tw-captioner \
+./target/release/jp2tw-subs \
   --input /path/to/video.mp4 \
   --font-dir ./fonts \
   --font-name "Noto Sans CJK TC" \
   --output /path/to/video.zh.mp4
 
 # or set an env var so --font-dir is optional
-export JP2TW_CAPTIONER_FONTS_DIR=./fonts
+export JP2TW_subs_FONTS_DIR=./fonts
 ```
 
 The app automatically prefers a local `./fonts` directory if present. For backward compatibility, it also respects `VIDEO_TRANSLATOR_FONTS_DIR`.
