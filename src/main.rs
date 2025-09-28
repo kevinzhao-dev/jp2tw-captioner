@@ -970,13 +970,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.srt");
         let segments = vec![
-            WhisperSegment { id: Some(0), start: 0.0, end: 1.0, text: "JA0".into() },
-            WhisperSegment { id: Some(1), start: 2.5, end: 3.75, text: "JA1".into() },
+            WhisperSegment {
+                id: Some(0),
+                start: 0.0,
+                end: 1.0,
+                text: "JA0".into(),
+            },
+            WhisperSegment {
+                id: Some(1),
+                start: 2.5,
+                end: 3.75,
+                text: "JA1".into(),
+            },
         ];
         let lines = vec!["你好".to_string(), "世界".to_string()];
         write_srt(&path, &segments, &lines).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
-        let expected = "1\n00:00:00,000 --> 00:00:01,000\n你好\n\n2\n00:00:02,500 --> 00:00:03,750\n世界\n\n";
+        let expected =
+            "1\n00:00:00,000 --> 00:00:01,000\n你好\n\n2\n00:00:02,500 --> 00:00:03,750\n世界\n\n";
         assert_eq!(content, expected);
     }
 
@@ -985,8 +996,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.ass");
         let segments = vec![
-            WhisperSegment { id: Some(0), start: 0.0, end: 1.0, text: "{JA0}".into() },
-            WhisperSegment { id: Some(1), start: 2.5, end: 3.75, text: "line1\nline2".into() },
+            WhisperSegment {
+                id: Some(0),
+                start: 0.0,
+                end: 1.0,
+                text: "{JA0}".into(),
+            },
+            WhisperSegment {
+                id: Some(1),
+                start: 2.5,
+                end: 3.75,
+                text: "line1\nline2".into(),
+            },
         ];
         let lines = vec!["你好".to_string(), "世界".to_string()];
         write_ass(&path, &segments, &lines, "My Font", 30).unwrap();
