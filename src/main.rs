@@ -35,6 +35,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     burn_in: bool,
 
+    /// Output bilingual subtitles (ZH first line, JP second line)
+    #[arg(long, default_value_t = false)]
+    bilingual: bool,
+
     /// Directory containing fonts for burn-in (libass fontsdir)
     #[arg(long, default_value = "./fonts")]
     font_dir: Option<PathBuf>,
@@ -42,6 +46,10 @@ struct Args {
     /// Preferred font family name for burn-in (e.g., "Noto Sans CJK TC")
     #[arg(long, default_value = "Noto Sans CJK TC")]
     font_name: Option<String>,
+
+    /// Font size for burn-in (ASS). If not set, uses 36 normally, 30 when --bilingual.
+    #[arg(long)]
+    font_size: Option<u32>,
 
     /// Whisper model for transcription
     #[arg(long, default_value = "whisper-1")]
@@ -130,6 +138,16 @@ async fn main() -> Result<()> {
         args.translate_batch_size,
     )
     .await?;
+    // Build display lines (bilingual or zh-only)
+    let display_lines: Vec<String> = if args.bilingual {
+        ja_lines
+            .iter()
+            .zip(zh_lines.iter())
+            .map(|(ja, zh)| format!("{}\n{}", zh, ja))
+            .collect()
+    } else {
+        zh_lines.clone()
+    };
     if zh_lines.len() != ja_lines.len() {
         return Err(anyhow!(
             "Translation count mismatch: {} vs {}",
@@ -140,7 +158,7 @@ async fn main() -> Result<()> {
 
     // 4) Write SRT
     progress.set_message("Writing SRT subtitles...");
-    write_srt(&output_srt, &segments, &zh_lines)?;
+    write_srt(&output_srt, &segments, &display_lines)?;
 
     // 5) Optionally mux or burn-in
     if args.burn_in || output_mp4.is_some() {
@@ -157,7 +175,8 @@ async fn main() -> Result<()> {
                 "Noto Sans CJK TC"
             };
             let chosen_font = args.font_name.as_deref().unwrap_or(default_font);
-            write_ass(&ass_path, &segments, &zh_lines, chosen_font)?;
+            let font_size = args.font_size.unwrap_or(if args.bilingual { 30 } else { 36 });
+            write_ass(&ass_path, &segments, &display_lines, chosen_font, font_size)?;
 
             // Try provided fonts dir or detect common/project fonts locations
             let fonts_dir = resolve_fonts_dir(args.font_dir.as_deref());
@@ -748,7 +767,13 @@ fn escape_for_ffmpeg(path: &Path) -> String {
         .replace("=", "\\=")
 }
 
-fn write_ass(path: &Path, segments: &[WhisperSegment], lines: &[String], font_name: &str) -> Result<()> {
+fn write_ass(
+    path: &Path,
+    segments: &[WhisperSegment],
+    lines: &[String],
+    font_name: &str,
+    font_size: u32,
+) -> Result<()> {
     use std::io::Write;
     let mut f = std::fs::File::create(path)
         .with_context(|| format!("Create ASS at {}", path.display()))?;
@@ -764,7 +789,7 @@ fn write_ass(path: &Path, segments: &[WhisperSegment], lines: &[String], font_na
     writeln!(f, "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")?;
     let font = font_name.replace(",", " ");
     // White text, black outline/shadow, bottom-center
-    writeln!(f, "Style: Default,{font},36,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1")?;
+    writeln!(f, "Style: Default,{font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1")?;
     writeln!(f, "")?;
     writeln!(f, "[Events]")?;
     writeln!(f, "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")?;

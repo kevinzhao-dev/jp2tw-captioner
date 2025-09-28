@@ -77,8 +77,14 @@ OPENAI_API_KEY=sk-... \
 - `--output-srt <FILE>`: Output SRT path (optional; default: `input.zh-TW.srt`)
 - `--output-mp4 <FILE>`: Output MP4 path with subtitles track or burned-in
 - `--burn-in`: Burn subtitles into the video (re-encode; implies `--output-mp4`)
+- `--bilingual`: Output bilingual subtitles (ZH first line, JP second)
 - `--whisper-model <NAME>`: Transcription model (default: `whisper-1`)
 - `--translate-model <NAME>`: Translation chat model (default: `gpt-4o-mini`)
+- `--translate-batch-size <N>`: Lines per translation batch (default: 60)
+- `--chunk-seconds <N>`: Seconds per audio chunk for transcription (default: 600)
+- `--font-dir <PATH>`: Fonts directory for burn-in (default: `./fonts`)
+- `--font-name <NAME>`: Font family for burn-in (default: `Noto Sans CJK TC`)
+- `--font-size <N>`: Font size for burn-in (ASS). Defaults to 36, or 30 when `--bilingual`.
 
 ## Fonts for Burn-in
 
