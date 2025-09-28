@@ -27,9 +27,9 @@ struct Args {
     #[arg(long)]
     output_srt: Option<PathBuf>,
 
-    /// Output MP4 file path (default name if omitted)
-    #[arg(long = "output")]
-    output: Option<PathBuf>,
+    /// Output MP4 file path (default name if omitted). Can be passed without a value.
+    #[arg(long = "output", num_args(0..=1), default_missing_value = "__AUTO__")]
+    output: Option<String>,
 
     /// Burn subtitles into the video (re-encode). If --output is provided, burn-in is used by default.
     #[arg(long, default_value_t = false)]
@@ -105,7 +105,12 @@ async fn main() -> Result<()> {
     let output_srt = args
         .output_srt
         .unwrap_or_else(|| default_srt_path(&args.input));
-    let output_mp4 = args.output.clone();
+    // Resolve output path behavior: if --output provided without path, pick default derived from input
+    let output_mp4: Option<PathBuf> = match args.output.as_deref() {
+        None => None,
+        Some("__AUTO__") | Some("") => Some(default_output_video_path(&args.input)),
+        Some(s) => Some(PathBuf::from(s)),
+    };
 
     let progress = ProgressBar::new_spinner();
     progress.set_style(
