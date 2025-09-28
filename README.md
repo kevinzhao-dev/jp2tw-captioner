@@ -1,4 +1,4 @@
-# Video Translator (Rust)
+# jp2tw-captioner (Rust)
 
 Adds Traditional Chinese subtitles (translated from Japanese audio) to MP4 videos using OpenAI APIs.
 
@@ -37,7 +37,7 @@ Alternative without code changes:
 
 ```
 set -a; source .env; set +a
-./target/release/video-translator --input /path/to/video.mp4
+./target/release/jp2tw-captioner --input /path/to/video.mp4
 ```
 
 ## Quick Start
@@ -48,24 +48,24 @@ cargo build --release
 
 # Basic: produce SRT alongside input
 OPENAI_API_KEY=sk-... \
-  ./target/release/video-translator \
+  ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4
 
 # Custom SRT path
 OPENAI_API_KEY=sk-... \
-  ./target/release/video-translator \
+  ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
   --output-srt /path/to/output.zh-TW.srt
 
 # Mux subtitles track into MP4 (mov_text)
 OPENAI_API_KEY=sk-... \
-  ./target/release/video-translator \
+  ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
   --output-mp4 /path/to/video.zh-TW.muxed.mp4
 
 # Burn-in subtitles (re-encode video)
 OPENAI_API_KEY=sk-... \
-  ./target/release/video-translator \
+  ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
   --burn-in \
   --output-mp4 /path/to/video.zh-TW.burned.mp4
@@ -108,7 +108,7 @@ scripts/prepare_fonts.sh  # copies Noto CJK TC fonts into ./fonts
 3) Use the fonts directory
 
 ```
-./target/release/video-translator \
+./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
   --burn-in \
   --font-dir ./fonts \
@@ -116,10 +116,10 @@ scripts/prepare_fonts.sh  # copies Noto CJK TC fonts into ./fonts
   --output-mp4 /path/to/video.zh-TW.burned.mp4
 
 # or set an env var so --font-dir is optional
-export VIDEO_TRANSLATOR_FONTS_DIR=./fonts
+export JP2TW_CAPTIONER_FONTS_DIR=./fonts
 ```
 
-The app automatically prefers a local `./fonts` directory if present.
+The app automatically prefers a local `./fonts` directory if present. For backward compatibility, it also respects `VIDEO_TRANSLATOR_FONTS_DIR`.
 
 ## Notes
 

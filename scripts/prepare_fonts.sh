@@ -41,7 +41,7 @@ esac
 
 if [ "$found_any" -eq 1 ]; then
   echo "Fonts prepared in $DEST_DIR"
-  echo "Tip: run with --font-dir $DEST_DIR or set VIDEO_TRANSLATOR_FONTS_DIR=$DEST_DIR"
+  echo "Tip: run with --font-dir $DEST_DIR or set JP2TW_CAPTIONER_FONTS_DIR=$DEST_DIR"
   exit 0
 fi
 
@@ -60,9 +60,8 @@ After installation, run:
   scripts/prepare_fonts.sh
 
 Then use:
-  ./target/debug/video-translator ... --burn-in --font-dir "$DEST_DIR" --font-name "Noto Sans CJK TC"
+  ./target/debug/jp2tw-captioner ... --burn-in --font-dir "$DEST_DIR" --font-name "Noto Sans CJK TC"
 Or set:
-  export VIDEO_TRANSLATOR_FONTS_DIR="$DEST_DIR"
+  export JP2TW_CAPTIONER_FONTS_DIR="$DEST_DIR"
 EOT
 exit 1
-

@@ -14,9 +14,9 @@ use tokio::time::{sleep, Duration};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "video-translator",
+    name = "jp2tw-captioner",
     version,
-    about = "Add Traditional Chinese subtitles translated from Japanese audio to mp4 videos using OpenAI"
+    about = "JP→TW captioner: add Traditional Chinese subtitles (translated from Japanese audio) to MP4 videos using OpenAI"
 )]
 struct Args {
     /// Input MP4 video file
@@ -795,7 +795,11 @@ fn detect_default_fonts_dir() -> Option<PathBuf> {
     // Try common system fonts directories to help libass find CJK glyphs
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    // Highest priority: env override
+    // Highest priority: env override (new name), fallback to legacy var
+    if let Ok(env_dir) = std::env::var("JP2TW_CAPTIONER_FONTS_DIR") {
+        let p = PathBuf::from(env_dir);
+        if p.exists() { return Some(p); }
+    }
     if let Ok(env_dir) = std::env::var("VIDEO_TRANSLATOR_FONTS_DIR") {
         let p = PathBuf::from(env_dir);
         if p.exists() { return Some(p); }
