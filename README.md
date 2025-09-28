@@ -8,7 +8,7 @@ Adds Traditional Chinese subtitles (translated from Japanese audio) to MP4 video
 - Transcribes Japanese speech to text with OpenAI Whisper (`whisper-1`)
 - Translates segment-by-segment to Traditional Chinese (Taiwan) using GPT (default: `gpt-4o-mini`)
 - Generates `.srt` subtitles
-- Optionally muxes SRT into MP4 as a subtitle track (no re-encode) or burns subtitles into the video (re-encode)
+- Burned-in subtitles MP4 via `--output` (re-encode)
 
 ## Requirements
 
@@ -68,6 +68,13 @@ OPENAI_API_KEY=sk-... \
   ./target/release/jp2tw-captioner \
   --input /path/to/video.mp4 \
   --output
+
+# Bilingual burned-in subtitles (ZH first line, JP second)
+OPENAI_API_KEY=sk-... \
+  ./target/release/jp2tw-captioner \
+  --input /path/to/video.mp4 \
+  --bilingual \
+  --output
 ```
 
 ## CLI Options
@@ -125,11 +132,16 @@ export JP2TW_CAPTIONER_FONTS_DIR=./fonts
 
 The app automatically prefers a local `./fonts` directory if present. For backward compatibility, it also respects `VIDEO_TRANSLATOR_FONTS_DIR`.
 
+## Performance Tips
+
+- Long videos: If you see intermittent 500/502/503/429 errors, try smaller chunks, e.g. `--chunk-seconds 300`.
+- Large subtitle counts: If a batch errors or returns the wrong count, the tool falls back to smaller batches or single-line translation automatically. You can also lower `--translate-batch-size` (e.g., 40).
+- Bilingual sizing: Use `--font-size` to fine-tune legibility. Defaults to 30 for bilingual, 36 otherwise.
+
 ## Notes
 
 - Transcription expects Japanese audio; `language` is set to `ja`.
 - Translation prompts the model to return strict JSON; requires models supporting `response_format: { type: "json_object" }`. If a model rejects this, switch to another model (e.g., `gpt-4o`).
-- Muxing uses `mov_text` codec; many players support toggling subtitles on/off.
 - Burning uses `-vf subtitles=...` and re-encodes the video. Requires `ffmpeg` with `libass`.
 
 ## Project Goal (from AGENTS.md)
@@ -144,6 +156,8 @@ The app automatically prefers a local `./fonts` directory if present. For backwa
 - `ffmpeg not available in PATH`: Install via Homebrew (`brew install ffmpeg`), apt (`sudo apt-get install ffmpeg`), or Chocolatey (`choco install ffmpeg`).
 - OpenAI errors: ensure `OPENAI_API_KEY` is set and billing/quota is available.
 - No segments returned by Whisper: ensure the model supports `verbose_json` with segments; otherwise try another audio format or model.
+- Rectangles instead of Chinese text (burn-in): install Noto CJK fonts and run `scripts/prepare_fonts.sh`, or set `--font-dir` to a folder containing a CJK-capable font and `--font-name` to its family name.
+- ffmpeg interactive prompt noise: suppressed via `-nostdin` in all calls.
 
 ## License
 
