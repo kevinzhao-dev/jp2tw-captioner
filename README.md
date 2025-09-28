@@ -1,4 +1,4 @@
-# jp2tw-captioner (Rust)
+# jp2tw-subs
 
 Adds Traditional Chinese subtitles (translated from Japanese audio) to MP4 videos using OpenAI APIs.
 
