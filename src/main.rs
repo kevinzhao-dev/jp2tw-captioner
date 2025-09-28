@@ -67,6 +67,7 @@ struct Args {
     translate_batch_size: usize,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct WhisperVerboseJson {
     text: Option<String>,
@@ -174,12 +175,8 @@ async fn main() -> Result<()> {
         progress.set_message("Burning subtitles into video (re-encode with ffmpeg)...");
         // Prepare an ASS file with an explicit font to avoid missing glyphs
         let ass_path = tmp.path().join("subs.ass");
-        // Prefer Noto on macOS to avoid PingFangUI private path issues
-        let default_font = if cfg!(target_os = "macos") {
-            "Noto Sans CJK TC"
-        } else {
-            "Noto Sans CJK TC"
-        };
+        // Prefer Noto to avoid platform-private font issues
+        let default_font = "Noto Sans CJK TC";
         let chosen_font = args.font_name.as_deref().unwrap_or(default_font);
         let font_size = args
             .font_size
@@ -410,20 +407,7 @@ async fn transcribe_whisper_chunked(
     Ok(all)
 }
 
-#[derive(Debug, Deserialize)]
-struct ChatResponse {
-    choices: Vec<ChatChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatChoice {
-    message: ChatMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatMessage {
-    content: String,
-}
+// (Removed unused ChatResponse/ChatChoice/ChatMessage)
 
 async fn translate_lines_zh_tw(
     lines: &[String],
@@ -486,8 +470,8 @@ async fn translate_batch_strict(
 
     // Collect and ensure all present
     let mut result = Vec::with_capacity(n);
-    for i in 0..n {
-        if let Some(t) = out[i].take() {
+    for (i, slot) in out.iter_mut().enumerate() {
+        if let Some(t) = slot.take() {
             result.push(t);
         } else {
             return Err(anyhow!("Failed to translate line {}", i));
@@ -735,31 +719,7 @@ fn default_output_video_path(input: &Path) -> PathBuf {
     out
 }
 
-fn mux_subtitles(input: &Path, srt: &Path, out: &Path) -> Result<()> {
-    // Add SRT as mov_text subtitles track without re-encoding video
-    let status = Command::new("ffmpeg")
-        .args([
-            "-nostdin",
-            "-y",
-            "-i",
-            input.to_str().unwrap(),
-            "-i",
-            srt.to_str().unwrap(),
-            "-c",
-            "copy",
-            "-c:s",
-            "mov_text",
-            "-metadata:s:s:0",
-            "language=zht",
-            out.to_str().unwrap(),
-        ])
-        .status()
-        .context("ffmpeg mux subtitles failed")?;
-    if !status.success() {
-        return Err(anyhow!("ffmpeg muxing failed"));
-    }
-    Ok(())
-}
+// (Removed unused mux_subtitles)
 
 fn burn_in_subtitles(
     input: &Path,
@@ -833,13 +793,13 @@ fn write_ass(
     writeln!(f, "WrapStyle: 0")?;
     writeln!(f, "ScaledBorderAndShadow: yes")?;
     writeln!(f, "YCbCr Matrix: TV.601")?;
-    writeln!(f, "")?;
+    writeln!(f)?;
     writeln!(f, "[V4+ Styles]")?;
     writeln!(f, "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")?;
     let font = font_name.replace(",", " ");
     // White text, black outline/shadow, bottom-center
     writeln!(f, "Style: Default,{font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1")?;
-    writeln!(f, "")?;
+    writeln!(f)?;
     writeln!(f, "[Events]")?;
     writeln!(
         f,
@@ -907,12 +867,7 @@ fn detect_default_fonts_dir() -> Option<PathBuf> {
         candidates.push(PathBuf::from("/usr/share/fonts/truetype"));
     }
 
-    for pb in candidates {
-        if pb.exists() {
-            return Some(pb);
-        }
-    }
-    None
+    candidates.into_iter().find(|pb| pb.exists())
 }
 
 fn resolve_fonts_dir(preferred: Option<&Path>) -> Option<PathBuf> {
