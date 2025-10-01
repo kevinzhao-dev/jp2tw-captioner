@@ -3,12 +3,21 @@ name: CI
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'jp2tw-subs/**'
+      - '.github/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'jp2tw-subs/**'
+      - '.github/**'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: jp2tw-subs
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -20,4 +29,3 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test --all --verbose
-
