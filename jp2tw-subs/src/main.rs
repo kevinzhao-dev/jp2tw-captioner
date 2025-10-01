@@ -168,8 +168,8 @@ async fn main() -> Result<()> {
     progress.set_message("Writing SRT subtitles...");
     write_srt(&output_srt, &segments, &display_lines)?;
 
-    // 5) Optionally produce MP4 (default: burn-in)
-    if args.burn_in || output_mp4.is_some() {
+    // 5) Produce MP4 only when --output is provided (and burn-in enabled)
+    if output_mp4.is_some() && args.burn_in {
         let out_mp4 = output_mp4.unwrap_or_else(|| default_output_video_path(&args.input));
         // Default behavior is burn-in, even if --burn-in not explicitly set
         progress.set_message("Burning subtitles into video (re-encode with ffmpeg)...");
